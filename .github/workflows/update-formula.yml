@@ -1,0 +1,50 @@
+name: Update formula
+
+# Points Formula/viwa.rb at a version of @zorinto/viwa on npm (the latest when none is given) and its sha256.
+# Started by viwa's release script after a publish, and once a day in case that was cut short.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version on npm (empty for the latest)
+        required: false
+  schedule:
+    - cron: "17 5 * * *"
+
+permissions:
+  contents: write
+
+concurrency: update-formula
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Update Formula/viwa.rb from npm
+        env:
+          WANTED: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          META=$(curl -fsSL "https://registry.npmjs.org/@zorinto%2Fviwa")
+          VERSION=${WANTED:-$(jq -r '."dist-tags".latest' <<<"$META")}
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Not a version: $VERSION" >&2; exit 1; }
+          URL=$(jq -r --arg v "$VERSION" '.versions[$v].dist.tarball // empty' <<<"$META")
+          INTEGRITY=$(jq -r --arg v "$VERSION" '.versions[$v].dist.integrity // empty' <<<"$META")
+          [ "$URL" = "https://registry.npmjs.org/@zorinto/viwa/-/viwa-$VERSION.tgz" ] || { echo "npm does not list $VERSION" >&2; exit 1; }
+          for attempt in $(seq 1 40); do
+            if curl -fsSL -o viwa.tgz "$URL"; then break; fi
+            echo "Not served yet (attempt $attempt)"; sleep 15
+          done
+          [ -s viwa.tgz ] || { echo "$URL was not served in time" >&2; exit 1; }
+          # The file must be the one npm recorded at publish (sha512), or the formula is left alone.
+          [ "sha512-$(openssl dgst -sha512 -binary viwa.tgz | base64 -w0)" = "$INTEGRITY" ] || { echo "The tarball does not match npm's record of it" >&2; exit 1; }
+          SHA256=$(sha256sum viwa.tgz | cut -d' ' -f1)
+          sed -i -E \
+            -e "s|/viwa-[0-9.]+\.tgz|/viwa-$VERSION.tgz|" \
+            -e "s|sha256 \"[0-9a-f]+\"|sha256 \"$SHA256\"|" Formula/viwa.rb
+          grep -q "viwa-$VERSION.tgz" Formula/viwa.rb && grep -q "$SHA256" Formula/viwa.rb
+          if git diff --quiet; then echo "The formula is already at $VERSION."; exit 0; fi
+          git -c user.name=Zorinto -c user.email=155092596+vimalhari@users.noreply.github.com \
+            commit -qam "viwa $VERSION (prebuilt binary from npm)"
+          git push origin HEAD:main
