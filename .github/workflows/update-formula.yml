@@ -1,15 +1,17 @@
 name: Update formula
 
-# Points Formula/viwa.rb at a version of @zorinto/viwa on npm (the latest when none is given) and its sha256.
-# Started by viwa's release script after a publish, and once a day in case that was cut short.
+# Points Formula/viwa.rb at a version of @zorinto/viwa on npm, only when the file npm serves has the sha256 given:
+# the one viwa's Release workflow verified as the file it built. Started by viwa's release script. It never
+# follows npm on its own, so a version that reached npm any other way does not reach Homebrew.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version on npm (empty for the latest)
-        required: false
-  schedule:
-    - cron: "17 5 * * *"
+        description: Version on npm
+        required: true
+      sha256:
+        description: The sha256 the Release run verified (VERIFIED_SHA256 in its log)
+        required: true
 
 permissions:
   contents: write
@@ -23,12 +25,13 @@ jobs:
       - uses: actions/checkout@v7
       - name: Update Formula/viwa.rb from npm
         env:
-          WANTED: ${{ inputs.version }}
+          VERSION: ${{ inputs.version }}
+          EXPECTED: ${{ inputs.sha256 }}
         run: |
           set -euo pipefail
           META=$(curl -fsSL "https://registry.npmjs.org/@zorinto%2Fviwa")
-          VERSION=${WANTED:-$(jq -r '."dist-tags".latest' <<<"$META")}
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Not a version: $VERSION" >&2; exit 1; }
+          [[ "$EXPECTED" =~ ^[0-9a-f]{64}$ ]] || { echo "Not a sha256: $EXPECTED" >&2; exit 1; }
           URL=$(jq -r --arg v "$VERSION" '.versions[$v].dist.tarball // empty' <<<"$META")
           INTEGRITY=$(jq -r --arg v "$VERSION" '.versions[$v].dist.integrity // empty' <<<"$META")
           [ "$URL" = "https://registry.npmjs.org/@zorinto/viwa/-/viwa-$VERSION.tgz" ] || { echo "npm does not list $VERSION" >&2; exit 1; }
@@ -40,6 +43,7 @@ jobs:
           # The file must be the one npm recorded at publish (sha512), or the formula is left alone.
           [ "sha512-$(openssl dgst -sha512 -binary viwa.tgz | base64 -w0)" = "$INTEGRITY" ] || { echo "The tarball does not match npm's record of it" >&2; exit 1; }
           SHA256=$(sha256sum viwa.tgz | cut -d' ' -f1)
+          [ "$SHA256" = "$EXPECTED" ] || { echo "npm serves $SHA256, not the verified $EXPECTED. The formula was not changed." >&2; exit 1; }
           sed -i -E \
             -e "s|/viwa-[0-9.]+\.tgz|/viwa-$VERSION.tgz|" \
             -e "s|sha256 \"[0-9a-f]+\"|sha256 \"$SHA256\"|" Formula/viwa.rb
