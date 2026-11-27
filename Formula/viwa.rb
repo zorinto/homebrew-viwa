@@ -2,8 +2,8 @@
 class Viwa < Formula
   desc "Read, reply to and manage WhatsApp Desktop chats from the Mac terminal"
   homepage "https://www.npmjs.com/package/@zorinto/viwa"
-  url "https://registry.npmjs.org/@zorinto/viwa/-/viwa-0.5.5.tgz"
-  sha256 "45b54085c045f545ee274dbace45269a858df3c7e819342bd191516bfc735195"
+  url "https://registry.npmjs.org/@zorinto/viwa/-/viwa-0.5.6.tgz"
+  sha256 "15990a6b39aa988edcbbd180b6306718476f17038a521c04393c118623899c10"
   license :cannot_represent
 
   depends_on arch: :arm64
